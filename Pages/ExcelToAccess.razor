@@ -1,0 +1,146 @@
+@page "/ExcelToAccess"
+@using System.IO
+@using DocumentFormat.OpenXml.Packaging;
+@using DocumentFormat.OpenXml.Spreadsheet;
+@using System.Data
+@using Components
+@using System.Data.Odbc
+
+<h1>@title</h1>
+
+<div>
+    <InputFile OnChange="@LoadExcelFile" accept=".xlsx">
+    </InputFile>
+</div>
+
+@if (excelModels.Rows.Count() > 0)
+{
+    <input type="button" value="InsertIntoAccess" @onclick="InsertIntoAccess">
+    <div>
+        <table>
+            @foreach (var row in excelModels.Rows)
+            {
+                <tr>
+                    @foreach (var col in row.Columns)
+                    {
+                        <td>
+                            <input type="input" @bind="col.Value" />
+                        </td>
+                    }
+                </tr>
+            }
+
+        </table>
+    </div>
+}
+
+@code {
+    private string title = "ExcelToAccess";
+
+
+    string[,] values = new string[,] { };
+
+    ExcelModel excelModels = new ExcelModel();
+
+    private void showLog()
+    {
+        Console.WriteLine("showLog");
+
+        Console.WriteLine(values[0, 0]);
+        Console.WriteLine(excelModels.Columns.Count());
+        Console.WriteLine(excelModels.Rows.Count());
+    }
+
+    private async Task InsertIntoAccess()
+    {
+        var connString = "Driver={Microsoft Access Driver (*.mdb, *.accdb)};Dbq=C:/Temp/Database1.accdb";
+        var commString = string.Empty;
+
+        foreach (var rows in excelModels.Rows)
+        {
+            commString = "INSERT INTO [FromExcel]([A],[B],[C],[D],[E]) VALUES("
+            + "'" + rows.Columns[0].Value + "', "
+            + "'" + rows.Columns[1].Value + "', "
+            + "'" + rows.Columns[2].Value + "', "
+            + "'" + rows.Columns[3].Value + "', "
+            + "'" + rows.Columns[4].Value + "'"
+            + "); " + Environment.NewLine;
+
+
+            using var connection = new OdbcConnection(connString);
+            var comm = new OdbcCommand(commString, connection);
+            await connection.OpenAsync();
+            comm.ExecuteNonQuery();
+        }
+
+
+    }
+
+    private async Task LoadExcelFile(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var ms = new MemoryStream();
+            await e.File.OpenReadStream().CopyToAsync(ms);
+
+            using var document = SpreadsheetDocument.Open(ms, false);
+            var workbookpart = document.WorkbookPart;
+            var sheet = workbookpart.Workbook.Sheets.GetFirstChild<Sheet>();
+            var workSheet = ((WorksheetPart)workbookpart.GetPartById(sheet.Id)).Worksheet;
+            var sheetData = workSheet.GetFirstChild<SheetData>();
+
+            var firstRow = sheetData.GetFirstChild<Row>();
+            var numCols = firstRow.ChildElements.Count;
+            var numRows = sheetData.ChildElements.Count;
+            values = new string[numRows, numCols];
+
+            for (int idxRow = 0; idxRow < numRows; idxRow++)
+            {
+                Row row = sheetData.ChildElements[idxRow] as Row;
+                for (int idxCol = 0; idxCol < numCols; idxCol++)
+                {
+                    values[idxRow, idxCol] = ((Cell)row.ChildElements[idxCol]).CellValue.Text;
+                    Console.WriteLine(values[idxRow, idxCol]);
+                }
+            }
+
+
+            excelModels = new ExcelModel();
+
+            for (int idxRow = 0; idxRow < values.GetLength(0); idxRow++)
+            {
+                var row = new ExcelRow();
+                for (int idxCol = 0; idxCol < values.GetLength(1); idxCol++)
+                {
+                    row.Columns.Add(new ExcelColumn
+                    {
+                        Value = values[idxRow, idxCol]
+                    });
+                }
+
+                excelModels.Rows.Add(row);
+            }
+
+            // 取得每一行
+            @* foreach (var row in sheetData.ChildElements.Select(x => x as Row))
+                {
+                var datarow = dt.NewRow();
+                for (var idx = 0; idx < firstRow.ChildElements.Count(); idx++)
+                {
+                // 取得每一欄
+                datarow[idx] = ((Cell)row.ChildElements[idx]).CellValue.Text;
+                // Do somethings
+                Console.WriteLine(datarow[idx]);
+                }
+
+                dt.Rows.Add(datarow);
+                } *@
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+}
